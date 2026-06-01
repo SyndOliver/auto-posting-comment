@@ -1,0 +1,18 @@
+services:
+  bot:
+    build: .
+    container_name: auto-post-bot
+    env_file: .env
+    volumes:
+      # SKU mapping + SQLite database (persistent)
+      - ./data:/app/data
+      # Log files (persistent)
+      - ./logs:/app/logs
+      # Downloaded videos (temporary, cleaned up after posting)
+      - ./downloads:/app/downloads
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

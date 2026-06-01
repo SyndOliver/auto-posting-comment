@@ -1,0 +1,12 @@
+# .gitignore
+.env
+__pycache__/
+*.pyc
+*.pyo
+downloads/
+logs/
+data/bot_history.db
+.venv/
+*.egg-info/
+dist/
+build/
