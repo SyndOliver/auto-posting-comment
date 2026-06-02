@@ -1,6 +1,7 @@
 """TikTok video downloader using TikWM API.
 
-Downloads TikTok videos without watermark via https://api.tikwm.com/api/
+Downloads TikTok videos without watermark via https://www.tikwm.com/api/
+Uses POST with form-encoded data matching the proven Node.js implementation.
 """
 
 import os
@@ -13,9 +14,11 @@ from src.utils.logger import setup_logger
 
 logger = setup_logger("tiktok")
 
-TIKWM_API_URL = "https://api.tikwm.com/api/"
+TIKWM_API_URL = "https://www.tikwm.com/api/"
+TIKWM_HD_BASE = "https://www.tikwm.com/video/media/hdplay/"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
+MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 def is_tiktok_url(url: str) -> bool:
@@ -32,6 +35,9 @@ def is_tiktok_url(url: str) -> bool:
 async def get_video_info(tiktok_url: str) -> dict:
     """Fetch video metadata from TikWM API.
 
+    Uses POST with application/x-www-form-urlencoded, matching the
+    proven Node.js implementation.
+
     Args:
         tiktok_url: The TikTok video URL.
 
@@ -41,12 +47,10 @@ async def get_video_info(tiktok_url: str) -> dict:
     Raises:
         Exception: If API request fails after retries.
     """
-    params = {
-        "url": tiktok_url,
-        "count": 12,
-        "cursor": 0,
-        "web": 1,
-        "hd": 1,
+    form_data = f"url={tiktok_url}"
+    headers = {
+        "Accept": "*/*",
+        "Content-Type": "application/x-www-form-urlencoded",
     }
 
     last_error = None
@@ -59,9 +63,10 @@ async def get_video_info(tiktok_url: str) -> dict:
                 tiktok_url,
             )
             async with aiohttp.ClientSession() as session:
-                async with session.get(
+                async with session.post(
                     TIKWM_API_URL,
-                    params=params,
+                    data=form_data,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
                     data = await response.json()
@@ -102,6 +107,9 @@ async def download_video(
 ) -> tuple[str, dict]:
     """Download a TikTok video without watermark.
 
+    Tries Full HD first (via hdplay endpoint), falls back to standard
+    quality (data.play) if the HD file is too large (>50MB) or fails.
+
     Args:
         tiktok_url: The TikTok video URL.
         download_dir: Directory to save the downloaded video.
@@ -118,36 +126,46 @@ async def download_video(
     # Get video info from API
     video_info = await get_video_info(tiktok_url)
 
-    # Prefer HD play URL, fallback to standard play URL
-    video_url = video_info.get("hdplay") or video_info.get("play")
-    if not video_url:
-        raise Exception("No video download URL found in API response")
-
-    # Ensure the video URL has a scheme
-    if video_url.startswith("//"):
-        video_url = "https:" + video_url
-
-    # Generate unique filename
     video_id = video_info.get("id", uuid.uuid4().hex[:12])
     file_path = os.path.join(download_dir, f"tiktok_{video_id}.mp4")
 
-    # Download the video file
-    logger.info("Downloading video: %s", video_url[:100])
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            video_url,
-            timeout=aiohttp.ClientTimeout(total=120),
-        ) as response:
-            if response.status != 200:
-                raise Exception(
-                    f"Failed to download video: HTTP {response.status}"
-                )
+    # Strategy 1: Try Full HD download via hdplay endpoint
+    hd_url = f"{TIKWM_HD_BASE}{video_id}.mp4"
+    logger.info("Trying Full HD download: %s", hd_url)
 
-            with open(file_path, "wb") as f:
-                async for chunk in response.content.iter_chunked(8192):
-                    f.write(chunk)
+    try:
+        await _download_file(hd_url, file_path)
+        file_size = os.path.getsize(file_path)
 
-    # Validate downloaded file
+        if file_size > MAX_VIDEO_SIZE_BYTES:
+            logger.warning(
+                "HD video too large (%.2f MB > 50 MB), falling back to standard",
+                file_size / (1024 * 1024),
+            )
+            os.remove(file_path)
+        else:
+            logger.info(
+                "Full HD video downloaded: %s (%.2f MB)",
+                file_path,
+                file_size / (1024 * 1024),
+            )
+            return file_path, video_info
+    except Exception as e:
+        logger.warning("Full HD download failed: %s, trying standard", str(e))
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    # Strategy 2: Fall back to standard quality via data.play
+    play_url = video_info.get("play")
+    if not play_url:
+        raise Exception("No video download URL found in API response")
+
+    if play_url.startswith("//"):
+        play_url = "https:" + play_url
+
+    logger.info("Downloading standard quality: %s", play_url[:100])
+    await _download_file(play_url, file_path)
+
     file_size = os.path.getsize(file_path)
     if file_size == 0:
         os.remove(file_path)
@@ -160,6 +178,36 @@ async def download_video(
     )
 
     return file_path, video_info
+
+
+async def _download_file(url: str, file_path: str) -> None:
+    """Download a file from URL to local path.
+
+    Args:
+        url: The URL to download from.
+        file_path: Local path to save the file.
+
+    Raises:
+        Exception: If download fails.
+    """
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=120),
+        ) as response:
+            if response.status != 200:
+                raise Exception(
+                    f"Failed to download: HTTP {response.status}"
+                )
+
+            with open(file_path, "wb") as f:
+                async for chunk in response.content.iter_chunked(8192):
+                    f.write(chunk)
+
+    file_size = os.path.getsize(file_path)
+    if file_size == 0:
+        os.remove(file_path)
+        raise Exception("Downloaded file is empty")
 
 
 def cleanup_video(file_path: str) -> None:

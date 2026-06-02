@@ -9,6 +9,7 @@ Handles all user interactions including:
 - Message handler - Process TikTok links + SKU for posting
 """
 
+import html
 import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -36,6 +37,11 @@ def is_admin(user_id: int) -> bool:
     return user_id in config.telegram_admin_ids
 
 
+def _e(text: str) -> str:
+    """Escape text for HTML parse mode (safe for all user content)."""
+    return html.escape(str(text))
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     if not is_admin(update.effective_user.id):
@@ -43,24 +49,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     welcome = (
-        "🤖 *Auto Post & Comment Bot*\n\n"
+        "🤖 <b>Auto Post &amp; Comment Bot</b>\n\n"
         "Bot giúp bạn đăng video TikTok lên Facebook Page "
-        "và tự động comment link affiliate Shopee\\.\n\n"
-        "📝 *Cách sử dụng:*\n"
+        "và tự động comment link affiliate Shopee.\n\n"
+        "📝 <b>Cách sử dụng:</b>\n"
         "Gửi tin nhắn với format:\n"
-        "```\n"
-        "https://tiktok\\.com/@user/video/123\n"
+        "<pre>\n"
+        "https://tiktok.com/@user/video/123\n"
         "SKU001\n"
-        "Caption bài đăng \\(tùy chọn\\)\n"
-        "```\n\n"
-        "📋 *Commands:*\n"
-        "/help \\- Hướng dẫn chi tiết\n"
-        "/list\\_sku \\- Xem danh sách SKU\n"
-        "/reload\\_sku \\- Reload file SKU\n"
-        "/status \\- Trạng thái bot\n"
-        "/history \\- Lịch sử đăng bài"
+        "Caption bài đăng (tùy chọn)\n"
+        "</pre>\n\n"
+        "📋 <b>Commands:</b>\n"
+        "/help - Hướng dẫn chi tiết\n"
+        "/list_sku - Xem danh sách SKU\n"
+        "/reload_sku - Reload file SKU\n"
+        "/status - Trạng thái bot\n"
+        "/history - Lịch sử đăng bài"
     )
-    await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(welcome, parse_mode=ParseMode.HTML)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -69,28 +75,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     help_text = (
-        "📖 *Hướng dẫn sử dụng*\n\n"
-        "*Bước 1:* Gửi tin nhắn cho bot với format:\n\n"
-        "```\n"
+        "📖 <b>Hướng dẫn sử dụng</b>\n\n"
+        "<b>Bước 1:</b> Gửi tin nhắn cho bot với format:\n\n"
+        "<pre>\n"
         "Link TikTok\n"
         "SKU sản phẩm\n"
-        "Caption \\(tùy chọn, có thể bỏ trống\\)\n"
-        "```\n\n"
-        "*Ví dụ:*\n"
-        "```\n"
-        "https://www\\.tiktok\\.com/@shop/video/123456\n"
+        "Caption (tùy chọn, có thể bỏ trống)\n"
+        "</pre>\n\n"
+        "<b>Ví dụ:</b>\n"
+        "<pre>\n"
+        "https://www.tiktok.com/@shop/video/123456\n"
         "SKU001\n"
-        "Sản phẩm hot nhất hôm nay\\!\n"
-        "```\n\n"
-        "*Bước 2:* Bot sẽ tự động:\n"
-        "1\\. Download video TikTok \\(không watermark\\)\n"
-        "2\\. Đăng video lên tất cả Facebook Pages\n"
-        "3\\. Comment link affiliate Shopee vào bài\n"
-        "4\\. Gửi kết quả về cho bạn\n\n"
+        "Sản phẩm hot nhất hôm nay!\n"
+        "</pre>\n\n"
+        "<b>Bước 2:</b> Bot sẽ tự động:\n"
+        "1. Download video TikTok (không watermark)\n"
+        "2. Đăng video lên tất cả Facebook Pages\n"
+        "3. Comment link affiliate Shopee vào bài\n"
+        "4. Gửi kết quả về cho bạn\n\n"
         f"⏱ Delay comment: {config.comment_delay_seconds}s\n"
         f"📄 Số Pages: {len(config.fb_pages)}"
     )
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
 
 async def list_sku_command(
@@ -105,16 +111,13 @@ async def list_sku_command(
         await update.message.reply_text("📭 Chưa có SKU nào trong hệ thống.")
         return
 
-    lines = ["📦 *Danh sách SKU:*\n"]
+    lines = ["📦 <b>Danh sách SKU:</b>\n"]
     for p in products:
-        # Escape special markdown v2 characters in product name
-        name = _escape_md(p.product_name)
-        sku = _escape_md(p.sku)
-        lines.append(f"• `{sku}` \\- {name}")
+        lines.append(f"• <code>{_e(p.sku)}</code> - {_e(p.product_name)}")
 
     lines.append(f"\n📊 Tổng: {len(products)} SKU")
     await update.message.reply_text(
-        "\n".join(lines), parse_mode=ParseMode.MARKDOWN_V2
+        "\n".join(lines), parse_mode=ParseMode.HTML
     )
 
 
@@ -131,7 +134,7 @@ async def reload_sku_command(
             f"✅ Đã reload thành công! Tổng: {count} SKU"
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi reload SKU: {e}")
+        await update.message.reply_text(f"❌ Lỗi reload SKU: {_e(str(e))}")
 
 
 async def status_command(
@@ -144,22 +147,22 @@ async def status_command(
     stats = await get_stats()
 
     pages_info = "\n".join(
-        f"  • {p.name} (`{_escape_md(p.page_id)}`)"
+        f"  • {_e(p.name)} (<code>{_e(p.page_id)}</code>)"
         for p in config.fb_pages
     )
 
     status_text = (
-        "📊 *Trạng thái Bot*\n\n"
+        "📊 <b>Trạng thái Bot</b>\n\n"
         f"🤖 Bot: Online\n"
         f"📦 SKU loaded: {sku_manager.count}\n"
         f"📄 Facebook Pages:\n{pages_info}\n\n"
-        f"📈 *Thống kê:*\n"
+        f"📈 <b>Thống kê:</b>\n"
         f"  • Tổng bài đăng: {stats['total']}\n"
         f"  • Thành công: {stats['success']}\n"
         f"  • Thất bại: {stats['failed']}\n"
         f"  • Hôm nay: {stats['today']}"
     )
-    await update.message.reply_text(status_text, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(status_text, parse_mode=ParseMode.HTML)
 
 
 async def history_command(
@@ -174,18 +177,18 @@ async def history_command(
         await update.message.reply_text("📭 Chưa có lịch sử đăng bài.")
         return
 
-    lines = ["📜 *10 bài đăng gần nhất:*\n"]
+    lines = ["📜 <b>10 bài đăng gần nhất:</b>\n"]
     for r in records:
         status_icon = "✅" if r["status"] == "success" else "❌"
         time_str = r["created_at"][:16] if r["created_at"] else "N/A"
-        page = _escape_md(r.get("page_name", "N/A"))
-        sku = _escape_md(r.get("sku", "N/A"))
+        page = _e(r.get("page_name", "N/A"))
+        sku = _e(r.get("sku", "N/A"))
         lines.append(
-            f"{status_icon} `{sku}` \\| {page} \\| {_escape_md(time_str)}"
+            f"{status_icon} <code>{sku}</code> | {page} | {_e(time_str)}"
         )
 
     await update.message.reply_text(
-        "\n".join(lines), parse_mode=ParseMode.MARKDOWN_V2
+        "\n".join(lines), parse_mode=ParseMode.HTML
     )
 
 
@@ -214,12 +217,12 @@ async def handle_message(
         if lines and is_tiktok_url(lines[0].strip()):
             await update.message.reply_text(
                 "⚠️ Thiếu SKU! Format đúng:\n\n"
-                "```\n"
+                "<pre>\n"
                 "Link TikTok\n"
                 "SKU\n"
                 "Caption (tùy chọn)\n"
-                "```",
-                parse_mode=ParseMode.MARKDOWN_V2,
+                "</pre>",
+                parse_mode=ParseMode.HTML,
             )
         return
 
@@ -238,27 +241,27 @@ async def handle_message(
     product = sku_manager.lookup(sku)
     if not product:
         await update.message.reply_text(
-            f"❌ Không tìm thấy SKU: `{_escape_md(sku)}`\n"
-            f"Dùng /list\\_sku để xem danh sách SKU\\.",
-            parse_mode=ParseMode.MARKDOWN_V2,
+            f"❌ Không tìm thấy SKU: <code>{_e(sku)}</code>\n"
+            f"Dùng /list_sku để xem danh sách SKU.",
+            parse_mode=ParseMode.HTML,
         )
         return
 
     # Send processing status
     status_msg = await update.message.reply_text(
         f"⏳ Đang xử lý...\n\n"
-        f"🎬 Video: {tiktok_url[:50]}...\n"
-        f"📦 SKU: {sku} - {product.product_name}\n"
-        f"📄 Pages: {len(config.fb_pages)}"
+        f"🎬 Video: {_e(tiktok_url[:50])}...\n"
+        f"📦 SKU: {_e(sku)} - {_e(product.product_name)}\n"
+        f"📄 Pages: {len(config.fb_pages)}",
+        parse_mode=ParseMode.HTML,
     )
 
     video_path = None
-    results = []
 
     try:
         # Step 1: Download TikTok video
         await status_msg.edit_text(
-            f"⏳ [1/3] Đang download video TikTok..."
+            "⏳ [1/3] Đang download video TikTok..."
         )
         video_path, video_info = await download_video(
             tiktok_url, config.video_download_dir
@@ -291,7 +294,7 @@ async def handle_message(
 
         # Step 3: Process results
         await status_msg.edit_text(
-            f"⏳ [3/3] Đang ghi log và tổng hợp kết quả..."
+            "⏳ [3/3] Đang ghi log và tổng hợp kết quả..."
         )
 
         success_lines = []
@@ -302,7 +305,9 @@ async def handle_message(
 
             if isinstance(result, Exception):
                 error_msg = str(result)
-                error_lines.append(f"❌ {page.name}: {error_msg[:100]}")
+                error_lines.append(
+                    f"❌ {_e(page.name)}: {_e(error_msg[:100])}"
+                )
                 await log_post(
                     tiktok_url=tiktok_url,
                     sku=sku,
@@ -317,8 +322,8 @@ async def handle_message(
             else:
                 post_url = result.get("post_url", "N/A")
                 success_lines.append(
-                    f"✅ {page.name}\n"
-                    f"   📎 {post_url}\n"
+                    f"✅ {_e(page.name)}\n"
+                    f"   📎 {_e(post_url)}\n"
                     f"   💬 Comment: OK"
                 )
                 await log_post(
@@ -336,8 +341,8 @@ async def handle_message(
                     status="success",
                 )
 
-        # Build final report
-        report_parts = ["🎉 *Kết quả đăng bài:*\n"]
+        # Build final report (plain text, no parse issues)
+        report_parts = ["🎉 Kết quả đăng bài:\n"]
 
         if success_lines:
             report_parts.append("\n".join(success_lines))
@@ -354,10 +359,14 @@ async def handle_message(
     except Exception as e:
         error_msg = str(e)
         logger.error("Error processing post: %s", error_msg, exc_info=True)
-        await status_msg.edit_text(
-            f"❌ Lỗi: {error_msg[:200]}\n\n"
-            f"Vui lòng thử lại hoặc kiểm tra logs."
-        )
+        try:
+            await status_msg.edit_text(
+                f"❌ Lỗi: {error_msg[:200]}\n\n"
+                f"Vui lòng thử lại hoặc kiểm tra logs."
+            )
+        except Exception:
+            # If even the error message fails, try a minimal message
+            await status_msg.edit_text("❌ Có lỗi xảy ra. Kiểm tra logs.")
         # Log error for all pages
         for page in config.fb_pages:
             await log_post(
@@ -376,22 +385,3 @@ async def handle_message(
         # Cleanup downloaded video
         if video_path:
             cleanup_video(video_path)
-
-
-def _escape_md(text: str) -> str:
-    """Escape special characters for Telegram MarkdownV2.
-
-    Args:
-        text: The text to escape.
-
-    Returns:
-        Escaped text safe for MarkdownV2.
-    """
-    special_chars = r"_*[]()~`>#+-=|{}.!"
-    escaped = ""
-    for char in text:
-        if char in special_chars:
-            escaped += f"\\{char}"
-        else:
-            escaped += char
-    return escaped
