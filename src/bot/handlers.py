@@ -271,16 +271,16 @@ async def handle_message(
         if not caption:
             caption = tiktok_title if tiktok_title else ""
 
-        # Step 2: Post to all pages
+        # Step 2: Post to all pages (each page gets its own shop's affiliate link)
         await status_msg.edit_text(
             f"⏳ [2/3] Đang đăng video lên {len(config.fb_pages)} page(s)..."
         )
 
-        comment_message = sku_manager.format_comment(product)
-
-        # Post to all pages concurrently
+        # Post to all pages concurrently, each with its own affiliate link
         tasks = []
-        for page_config in config.fb_pages:
+        for page_index, page_config in enumerate(config.fb_pages):
+            # Each page gets the affiliate link matching its shop
+            comment_message = sku_manager.format_comment(product, page_index)
             task = fb_service.post_and_comment(
                 page_config=page_config,
                 video_path=video_path,
@@ -302,6 +302,7 @@ async def handle_message(
 
         for i, result in enumerate(page_results):
             page = config.fb_pages[i]
+            page_afl_link = product.get_link(i)
 
             if isinstance(result, Exception):
                 error_msg = str(result)
@@ -315,7 +316,7 @@ async def handle_message(
                     caption=caption,
                     page_name=page.name,
                     page_id=page.page_id,
-                    affiliate_link=product.affiliate_link,
+                    affiliate_link=page_afl_link,
                     status="failed",
                     error_msg=error_msg,
                 )
@@ -336,7 +337,7 @@ async def handle_message(
                     post_id=result.get("post_id", ""),
                     video_id=result.get("video_id", ""),
                     comment_id=result.get("comment_id", ""),
-                    affiliate_link=product.affiliate_link,
+                    affiliate_link=page_afl_link,
                     post_url=post_url,
                     status="success",
                 )
@@ -368,7 +369,7 @@ async def handle_message(
             # If even the error message fails, try a minimal message
             await status_msg.edit_text("❌ Có lỗi xảy ra. Kiểm tra logs.")
         # Log error for all pages
-        for page in config.fb_pages:
+        for i, page in enumerate(config.fb_pages):
             await log_post(
                 tiktok_url=tiktok_url,
                 sku=sku,
@@ -376,7 +377,7 @@ async def handle_message(
                 caption=caption,
                 page_name=page.name,
                 page_id=page.page_id,
-                affiliate_link=product.affiliate_link if product else "",
+                affiliate_link=product.get_link(i) if product else "",
                 status="failed",
                 error_msg=error_msg,
             )

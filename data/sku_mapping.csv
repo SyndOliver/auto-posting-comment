@@ -1,4 +1,3 @@
-sku,affiliate_link,product_name
-SKU001,https://shope.ee/example1,Áo thun nam basic
-SKU002,https://shope.ee/example2,Quần jean nữ slim fit
-SKU003,https://shope.ee/example3,Giày sneaker unisex
+sku,affiliate_link_1,affiliate_link_2,product_name
+MD13,https://shope.ee/shop1_MD13,https://shope.ee/shop2_MD13,Mua ở đây nha mấy bà
+MD26,https://shope.ee/shop1_MD26,https://shope.ee/shop2_MD26,Mua ở đây nha mấy bà

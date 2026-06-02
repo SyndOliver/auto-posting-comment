@@ -1,12 +1,13 @@
 """SKU to Shopee Affiliate Link mapping manager.
 
 Reads SKU → affiliate link mappings from a CSV file and provides
-lookup functionality.
+lookup functionality. Supports multiple shops/pages with separate
+affiliate links per SKU (affiliate_link_1, affiliate_link_2, etc.).
 """
 
 import csv
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.utils.logger import setup_logger
 
@@ -15,17 +16,40 @@ logger = setup_logger("sku_manager")
 
 @dataclass
 class ProductInfo:
-    """Product information from SKU mapping."""
+    """Product information from SKU mapping.
+
+    affiliate_links is a list where index 0 = Page 1's link,
+    index 1 = Page 2's link, etc. Maps to FB_PAGE1, FB_PAGE2
+    order in .env config.
+    """
 
     sku: str
-    affiliate_link: str
-    product_name: str
+    affiliate_links: list[str] = field(default_factory=list)
+    product_name: str = ""
+
+    def get_link(self, page_index: int) -> str:
+        """Get affiliate link for a specific page.
+
+        Args:
+            page_index: 0-based index matching the page order in config.
+
+        Returns:
+            The affiliate link for that page, or the first link as fallback.
+        """
+        if page_index < len(self.affiliate_links):
+            return self.affiliate_links[page_index]
+        # Fallback to first link if index out of range
+        return self.affiliate_links[0] if self.affiliate_links else ""
 
 
 class SKUManager:
     """Manages SKU to affiliate link mappings.
 
-    Loads data from a CSV file with columns: sku, affiliate_link, product_name
+    Loads data from a CSV file with columns:
+        sku, affiliate_link_1, affiliate_link_2, ..., product_name
+
+    Each affiliate_link_N column maps to the Nth Facebook Page
+    configured in .env (FB_PAGE1, FB_PAGE2, etc.).
     """
 
     def __init__(self, csv_path: str):
@@ -56,29 +80,48 @@ class SKUManager:
             if reader.fieldnames is None:
                 raise ValueError("CSV file is empty or has no headers")
 
-            required_cols = {"sku", "affiliate_link", "product_name"}
-            actual_cols = {col.strip().lower() for col in reader.fieldnames}
-            missing = required_cols - actual_cols
-            if missing:
+            actual_cols = [col.strip().lower() for col in reader.fieldnames]
+
+            if "sku" not in actual_cols:
+                raise ValueError("CSV missing required column: sku")
+            if "product_name" not in actual_cols:
+                raise ValueError("CSV missing required column: product_name")
+
+            # Find all affiliate_link columns (affiliate_link_1, affiliate_link_2, ...)
+            link_cols = sorted(
+                [c for c in actual_cols if c.startswith("affiliate_link")],
+            )
+            if not link_cols:
                 raise ValueError(
-                    f"CSV missing required columns: {missing}. "
-                    f"Expected: sku, affiliate_link, product_name"
+                    "CSV missing affiliate link columns. "
+                    "Expected: affiliate_link_1, affiliate_link_2, ..."
                 )
+
+            logger.info("Found %d affiliate link columns: %s", len(link_cols), link_cols)
 
             for row in reader:
                 sku = row.get("sku", "").strip().upper()
-                affiliate_link = row.get("affiliate_link", "").strip()
                 product_name = row.get("product_name", "").strip()
 
-                if not sku or not affiliate_link:
+                if not sku:
+                    logger.warning("Skipping row with empty SKU: %s", row)
+                    continue
+
+                # Collect affiliate links in order
+                affiliate_links = []
+                for col in link_cols:
+                    link = row.get(col, "").strip()
+                    affiliate_links.append(link)
+
+                if not any(affiliate_links):
                     logger.warning(
-                        "Skipping row with empty SKU or link: %s", row
+                        "Skipping SKU %s: no affiliate links found", sku
                     )
                     continue
 
                 self._mapping[sku] = ProductInfo(
                     sku=sku,
-                    affiliate_link=affiliate_link,
+                    affiliate_links=affiliate_links,
                     product_name=product_name,
                 )
 
@@ -113,16 +156,18 @@ class SKUManager:
         """Return the number of loaded SKUs."""
         return len(self._mapping)
 
-    def format_comment(self, product: ProductInfo) -> str:
-        """Format the comment message for a product.
+    def format_comment(self, product: ProductInfo, page_index: int = 0) -> str:
+        """Format the comment message for a product on a specific page.
 
         Args:
             product: The product info.
+            page_index: 0-based index of the page (maps to affiliate_link_N).
 
         Returns:
-            Formatted comment string with affiliate link.
+            Formatted comment string with the correct affiliate link.
         """
+        link = product.get_link(page_index)
         return (
             f"🛒 {product.product_name}\n"
-            f"👉 Mua ngay: {product.affiliate_link}"
+            f"👉 Mua ngay: {link}"
         )
