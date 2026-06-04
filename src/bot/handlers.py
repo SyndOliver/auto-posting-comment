@@ -322,9 +322,11 @@ async def handle_message(
                 )
             else:
                 post_url = result.get("post_url", "N/A")
+                liked = "✅" if result.get("liked") else "❌"
                 success_lines.append(
                     f"✅ {_e(page.name)}\n"
                     f"   📎 {_e(post_url)}\n"
+                    f"   👍 Like: {liked}\n"
                     f"   💬 Comment: OK"
                 )
                 await log_post(

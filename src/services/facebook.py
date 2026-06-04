@@ -1,6 +1,6 @@
 """Facebook Graph API integration.
 
-Handles video upload (resumable upload API) and commenting on posts.
+Handles video upload (resumable upload API), liking, and commenting on posts.
 """
 
 import os
@@ -288,6 +288,50 @@ class FacebookService:
 
         return {"comment_id": comment_id}
 
+    async def like_post(
+        self,
+        page_config: FacebookPageConfig,
+        post_identifier: str,
+    ) -> bool:
+        """Like a Facebook post as the Page.
+
+        Args:
+            page_config: Facebook page configuration.
+            post_identifier: The post_id or video_id to like.
+
+        Returns:
+            True if liked successfully.
+        """
+        logger.info(
+            "Liking post %s (page: %s)",
+            post_identifier,
+            page_config.name,
+        )
+
+        url = (
+            f"{GRAPH_API_BASE}/{self.api_version}"
+            f"/{post_identifier}/likes"
+        )
+        params = {
+            "access_token": page_config.access_token,
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, params=params) as resp:
+                result = await resp.json()
+                if "error" in result:
+                    error_msg = result["error"].get("message", "Unknown error")
+                    logger.warning("Failed to like post: %s", error_msg)
+                    return False
+
+        success = result.get("success", False)
+        if success:
+            logger.info("Post liked successfully!")
+        else:
+            logger.warning("Like returned unexpected result: %s", result)
+
+        return success
+
     async def post_and_comment(
         self,
         page_config: FacebookPageConfig,
@@ -296,7 +340,7 @@ class FacebookService:
         comment_message: str,
         comment_delay: int = 10,
     ) -> dict:
-        """Upload video to a page, then comment on it after a delay.
+        """Upload video to a page, like it, then comment after a delay.
 
         Args:
             page_config: Facebook page configuration.
@@ -306,18 +350,13 @@ class FacebookService:
             comment_delay: Seconds to wait before commenting.
 
         Returns:
-            Dict with post result and comment result.
+            Dict with post result, like status, and comment result.
         """
         # Step 1: Post the video
         post_result = await self.post_video(
             page_config, video_path, description
         )
 
-        # Step 2: Wait before commenting
-        logger.info("Waiting %d seconds before commenting...", comment_delay)
-        await asyncio.sleep(comment_delay)
-
-        # Step 3: Comment on the post
         # Use post_id if available, otherwise try video_id
         post_identifier = post_result.get("post_id") or post_result.get(
             "video_id"
@@ -327,6 +366,14 @@ class FacebookService:
                 "No post_id or video_id returned from video upload"
             )
 
+        # Step 2: Like the post
+        liked = await self.like_post(page_config, post_identifier)
+
+        # Step 3: Wait before commenting
+        logger.info("Waiting %d seconds before commenting...", comment_delay)
+        await asyncio.sleep(comment_delay)
+
+        # Step 4: Comment on the post
         try:
             comment_result = await self.comment_on_post(
                 page_config, post_identifier, comment_message
@@ -347,6 +394,7 @@ class FacebookService:
         return {
             **post_result,
             **comment_result,
+            "liked": liked,
             "post_url": self._build_post_url(
                 page_config.page_id,
                 post_result.get("post_id") or post_result.get("video_id", ""),
